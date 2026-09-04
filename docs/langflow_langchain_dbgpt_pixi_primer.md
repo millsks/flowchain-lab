@@ -7,9 +7,9 @@
 
 ## How to use this primer
 
-Work through the stages in order. Each stage has a goal, a small implementation, and exercises. Do not skip the non-LLM foundations: they are the parts that make later AI features safe, testable, and maintainable.
+Work through the stages in order. Each stage has a goal, a small implementation, and exercises. Do not skip the non-LLM foundations: they are the parts that make later AI features safe, testable, and [...]
 
-> **Important distinction:** An LLM is a type of model that produces or transforms language. A workflow can still load files, validate data, query a database, call APIs, route requests, render results, and log outcomes without one. That is where this guide starts.
+> **Important distinction:** An LLM is a type of model that produces or transforms language. A workflow can still load files, validate data, query a database, call APIs, route requests, render results[...]
 
 ## 1. The map: what each tool is for
 
@@ -33,7 +33,7 @@ flowchart LR
 
 ### What “professional” means here
 
-A professional system is not merely one that produces an impressive answer. It has an explicit contract, controlled data access, observable executions, reproducible dependencies, tests, failure handling, and a deployment plan.
+A professional system is not merely one that produces an impressive answer. It has an explicit contract, controlled data access, observable executions, reproducible dependencies, tests, failure handli[...]
 
 ## 2. Core ideas before installation
 
@@ -49,7 +49,7 @@ A professional system is not merely one that produces an impressive answer. It h
 
 ### 2.2 A dependable design boundary
 
-Keep correctness-critical work deterministic. The database query, permissions check, arithmetic, and write operation should remain conventional program logic. An LLM, if added, belongs at the interpretation or presentation edge.
+Keep correctness-critical work deterministic. The database query, permissions check, arithmetic, and write operation should remain conventional program logic. An LLM, if added, belongs at the interpre[...]
 
 ```mermaid
 flowchart LR
@@ -77,7 +77,7 @@ It is deliberately constrained. A reliable system should expand its vocabulary o
 
 ## 3. Stage 0 — set up Pixi
 
-Pixi is a cross-platform package manager and workflow tool. Its project manifest describes desired dependencies, and its lock file records resolved versions so collaborators can reproduce the environment. See the [official Pixi installation guide](https://prefix-dev.github.io/pixi/latest/installation/) and [project overview](https://github.com/prefix-dev/pixi/).
+Pixi is a cross-platform package manager and workflow tool. Its project manifest describes desired dependencies, and its lock file records resolved versions so collaborators can reproduce the environm[...]
 
 ### 3.1 Install Pixi
 
@@ -286,7 +286,7 @@ The final test is intentionally incomplete: it is an exercise in creating isolat
 
 ## 6. Stage 3 — LangChain without an LLM
 
-LangChain is commonly used for LLM applications, but its composition model is useful without a model call. A **Runnable** is an invokable unit. Combine ordinary Python functions into a pipeline, then test them exactly as you test other code.
+LangChain is commonly used for LLM applications, but its composition model is useful without a model call. A **Runnable** is an invokable unit. Combine ordinary Python functions into a pipeline, then [...]
 
 ```mermaid
 flowchart LR
@@ -355,7 +355,7 @@ Do this with an ordinary Python function first. Only then wrap that function in 
 
 ## 7. Stage 4 — Langflow without an LLM
 
-Langflow is a visual environment for composing flows. Its official project describes visual authoring, an interactive playground, and the ability to expose a flow as an API or export it as JSON. It supports many model and vector integrations, but its components and custom Python capability can also model ordinary deterministic workflows. See [Langflow’s overview](https://www.langflow.org/) and its [source project](https://github.com/langflow-ai/langflow).
+Langflow is a visual environment for composing flows. Its official project describes visual authoring, an interactive playground, and the ability to expose a flow as an API or export it as JSON. It su[...]
 
 ### 7.1 Install and run in the Pixi environment
 
@@ -367,7 +367,7 @@ pixi task add langflow "langflow run"
 pixi run langflow
 ```
 
-The Langflow project’s current quickstart documents a local server at `http://127.0.0.1:7860`; consult the [upstream quickstart](https://github.com/langflow-ai/langflow) if a future release changes this.
+The Langflow project’s current quickstart documents a local server at `http://127.0.0.1:7860`; consult the [upstream quickstart](https://github.com/langflow-ai/langflow) if a future release changes [...]
 
 ### 7.2 Your first visual non-LLM flow
 
@@ -394,9 +394,67 @@ In Langflow’s canvas:
 
 > Component names and ports evolve between Langflow releases. Use the component search panel and its inline type hints rather than copying an old screenshot or tutorial verbatim.
 
-### Design rule: put business logic in normal Python
+### Concrete example: custom Python components for Langflow
 
-Keep your validation and query code in normal, version-controlled Python modules. A Langflow custom component should call those functions rather than becoming the only location where business rules exist. This lets you test the core without a browser and use it from Langflow, an API, or a command line.
+Langflow lets you write small Python snippets (custom components) that call your project's Python functions. Keep business logic in version-controlled modules and import them from the component code. Below is a minimal example you can include in your project as `langflow_components.py` and then reference from Langflow's Custom Python component(s).
+
+Create `langflow_components.py` next to `order_lookup.py`:
+
+```python
+# langflow_components.py
+from dataclasses import asdict
+from order_lookup import parse_command, lookup_order
+
+
+def validate_command_component(text: str) -> dict:
+    """Validate input and return a stable dict describing success or an error message.
+
+    Langflow custom Python components should return JSON-serializable values.
+    """
+    try:
+        command_id = parse_command(text)
+        return {"valid": True, "order_id": command_id}
+    except ValueError as e:
+        return {"valid": False, "error": str(e)}
+
+
+def query_order_component(validated: dict) -> dict:
+    """Call the deterministic lookup; accepts the validated dict returned above.
+
+    This component must *not* perform authorization; it should only read.
+    """
+    if not validated.get("valid"):
+        return {"found": False, "error": validated.get("error")}
+    order = lookup_order(validated["order_id"])  # read-only
+    if order is None:
+        return {"found": False, "order_id": validated["order_id"]}
+    return {"found": True, "order": asdict(order)}
+
+
+def format_output_component(result: dict) -> str:
+    """Serialize the structured result for display in Langflow's Text Output node."""
+    if not result.get("found"):
+        if "error" in result:
+            return f"error: {result['error']}"
+        return f"order {result.get('order_id')} not found"
+    order = result["order"]
+    return (
+        f"Order {order['order_id']} — {order['customer_name']} — {order['status']} — "
+        f"${order['total_cents'] / 100:.2f}"
+    )
+```
+
+How to use these in Langflow:
+
+- In the first Custom Python node, paste `from langflow_components import validate_command_component` and set the component to call `validate_command_component(input_text)` (Langflow UI varies; the idea is to call that function with the incoming text).
+- In the second Custom Python node, call `query_order_component(validated)` where `validated` is the output of the prior node.
+- In the final Custom Python node, call `format_output_component(result)` and connect it to a Text Output node.
+
+Design notes:
+
+- Keep the components tiny and import your project's tested functions rather than embedding DB logic in the Langflow canvas.
+- Return deterministic, JSON-serializable values so Langflow can route and display them reliably.
+- Do not store secrets in component code; use environment or secret manager integrations for runtime-only secrets.
 
 ### Exercise 3 — visual error route
 
@@ -409,9 +467,9 @@ Document the inputs and expected output for each path in the flow description.
 
 ## 8. Stage 5 — DB-GPT without an LLM: what is and is not possible
 
-DB-GPT is an open-source data-assistant platform built around data connections, SQL/code execution, workflows, skills, and model support. Its documented AI experience includes generating SQL from natural language, planning, and report generation. See the [DB-GPT overview](http://docs.dbgpt.cn/docs/overview/) and [source project](https://github.com/eosphoros-ai/DB-GPT).
+DB-GPT is an open-source data-assistant platform built around data connections, SQL/code execution, workflows, skills, and model support. Its documented AI experience includes generating SQL from natu[...]
 
-**The honest constraint:** DB-GPT is principally designed for AI + data workflows. Its headline Text-to-SQL and conversational features require a language model. “DB-GPT without an LLM” therefore means using the same disciplined data foundations—explicit connections, safe SQL, deterministic tools, and repeatable workflows—not expecting natural-language querying to work with no model.
+**The honest constraint:** DB-GPT is principally designed for AI + data workflows. Its headline Text-to-SQL and conversational features require a language model. “DB-GPT without an LLM” therefore [...]
 
 ### A useful DB-GPT learning path before enabling a model
 
@@ -429,7 +487,7 @@ flowchart TD
 3. **Write the SQL yourself.** Begin with constrained `SELECT` queries.
 4. **Confirm results independently.** Compare a query with an expected small result set.
 5. **Treat SQL as a tool contract.** Specify inputs, allowed operation, result limit, timeout, and audit event.
-6. **Explore DB-GPT workflow and skill concepts.** DB-GPT documents skills as reusable packages of instructions, optional scripts, references, and assets. That structure is valuable even before a model is in the loop.
+6. **Explore DB-GPT workflow and skill concepts.** DB-GPT documents skills as reusable packages of instructions, optional scripts, references, and assets. That structure is valuable even before a mode[...]
 
 ### SQL exercise: safe reporting query
 
@@ -442,11 +500,11 @@ connection.execute(
 ).fetchall()
 ```
 
-Do **not** start with a database account that can modify or delete production data. Separate read and write credentials, enforce least privilege, and require explicit approval for destructive operations.
+Do **not** start with a database account that can modify or delete production data. Separate read and write credentials, enforce least privilege, and require explicit approval for destructive operatio[...]
 
 ### DB-GPT and Pixi
 
-Current DB-GPT documentation recommends `uv` in some installation paths, while its PyPI package can also be installed with `pip`. Pixi can manage Python/PyPI dependencies, but treat the DB-GPT integration as an advanced, separately tested environment: DB-GPT’s optional providers and system dependencies can be substantial. Start by following the [official DB-GPT quickstart](https://github.com/eosphoros-ai/DB-GPT/blob/main/docs/docs/quickstart.md), then decide whether to reproduce the exact dependency set in a Pixi project.
+Current DB-GPT documentation recommends `uv` in some installation paths, while its PyPI package can also be installed with `pip`. Pixi can manage Python/PyPI dependencies, but treat the DB-GPT integra[...]
 
 That is not a failure of Pixi. It is dependency management done carefully: do not combine major toolchains until you can reproduce each one independently.
 
@@ -478,7 +536,7 @@ The critical control point is the validator. It treats the model output as untru
 User message -> LLM writes arbitrary SQL -> production database
 ```
 
-This design makes authorization, schema constraints, cost, correctness, and auditability much harder. If your use case requires generated SQL, begin with a read-only database, table allowlist, query parser/policy checks, row limits, statement timeouts, logging, and human review for high-impact actions.
+This design makes authorization, schema constraints, cost, correctness, and auditability much harder. If your use case requires generated SQL, begin with a read-only database, table allowlist, query p[...]
 
 ### 9.3 A practical progression
 
@@ -499,7 +557,35 @@ Write a JSON schema—or a Pydantic model in Python—for this action:
 }
 ```
 
-Then list five invalid model outputs your validator must reject, such as a missing field, extra action, negative ID, string ID, or an attempt to include SQL.
+Below is a small Pydantic model you can include in your project (e.g. `model_contracts.py`) to validate the LLM's output. The validator should reject any output that does not conform exactly to this schema before you call deterministic tools.
+
+```python
+# model_contracts.py
+from pydantic import BaseModel, Field, conint, ValidationError
+from typing import Literal
+
+
+class LookupOrderAction(BaseModel):
+    action: Literal["lookup_order"]
+    order_id: conint(ge=0) = Field(..., description="Positive integer order id")
+
+
+# Example usage:
+# try:
+#     payload = LookupOrderAction.parse_obj(llm_output)
+# except ValidationError as e:
+#     # reject the model output and return an error
+#     raise
+```
+
+Five invalid model outputs the validator must reject (examples):
+
+1. Missing field: `{ "action": "lookup_order" }` (no order_id)
+2. Wrong action: `{ "action": "delete_order", "order_id": 1002 }` (action not allowed)
+3. Negative ID: `{ "action": "lookup_order", "order_id": -5 }` (invalid range)
+4. String ID: `{ "action": "lookup_order", "order_id": "1002" }` (type mismatch)
+5. Injected SQL or extra fields: `{ "action": "lookup_order", "order_id": 1002, "sql": "DROP TABLE orders;" }` (unexpected field / dangerous content)
+
 
 ## 10. Evaluation: prove the system works
 
@@ -611,4 +697,4 @@ Use primary documentation as your authority when commands or components change:
 
 ## Closing perspective
 
-Start with the smallest trustworthy system: a constrained request, an authorization check, a parameterized query, a structured response, and a test. LangChain and Langflow can help you compose and explain that system; DB-GPT can broaden your understanding of data-assistant workflows. Add models last, as carefully bounded collaborators—not as substitutes for software engineering.
+Start with the smallest trustworthy system: a constrained request, an authorization check, a parameterized query, a structured response, and a test. LangChain and Langflow can help you compose and exp[...]
